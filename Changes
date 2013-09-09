@@ -2,3 +2,7 @@ Revision history for MojoX-DirectoryListing
 
 0.01    2013-09-08
 	Initial release
+
+0.02	2013-09-09
+	Fix _mk_fileserver function to respond with correct content-type.
+	Skip forbidden tests on MSWin32

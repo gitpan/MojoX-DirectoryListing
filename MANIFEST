@@ -5,6 +5,7 @@ MANIFEST			This list of files
 README
 t/00-load.t
 t/10-app1.t
+t/20-content-types.t
 t/app1/Server1.pm
 t/app1/Server2.pm
 t/app1/Server3.pm

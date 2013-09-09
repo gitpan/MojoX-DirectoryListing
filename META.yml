@@ -21,4 +21,4 @@ no_index:
 requires:
   Mojolicious::Lite: 0
   perl: 5.01
-version: 0.01
+version: 0.02

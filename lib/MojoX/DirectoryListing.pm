@@ -6,7 +6,7 @@ use warnings FATAL => 'all';
 use base 'Exporter';
 
 our @EXPORT = ('serve_directory_listing');
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 our $public_dir = "public";
 
 sub set_public_app_dir {
@@ -67,10 +67,22 @@ sub _mk_fileserver {
 	} elsif (open my $fh, '<', "$local/$file") {
 	    my $output = join '', <$fh>;
 	    close $fh;
-	    $self->render( text => $output );
+	    my ($type) = $file =~ /.*\.(\S+)$/;
+	    if ($type) {
+		my $format = $self->app->types->type($type);
+		if ($format && $format =~ /te?xt/i) {
+		    $self->render( format => $type, text => $output );
+		} elsif ($format) {
+		    $self->render( format => $type, data => $output );
+		} else {
+		    $self->render( data => $output );
+		}
+	    } else {
+		$self->render( data => $output );
+	    }
 	} else {
 	    $self->status(404);
-	}	
+	}
     };
 }
 
@@ -300,7 +312,7 @@ MojoX::DirectoryListing - show Apache-style directory listings in your Mojolicio
 
 =head1 VERSION
 
-0.01
+0.02
 
 =head1 SYNOPSIS
 

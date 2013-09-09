@@ -5,6 +5,10 @@ use strict;
 use warnings;
 use Data::Dumper; $Data::Dumper::Sortkeys=$Data::Dumper::Indent=1;
 
+sub can_test_forbidden {
+    $< != 0 && $^O ne 'MSWin32';   
+}
+
 {
     my (@madefiles,@madedirs);
 
@@ -91,9 +95,12 @@ $t2->get_ok('/dir2/dir3')->status_is(200)
     ->content_like( $identifier, 'subdir served by this module' );
 $t2->get_ok('/dir2/dir3?C=N&O=D', 'request for list in descending order')
     ->status_is(200, 'request ok')
-    ->content_like( qr/young.*old.*middle/s, 'files in descending order' )
-    ->content_unlike( qr/forbidden/, 'forbidden files hidden' );
+    ->content_like( qr/young.*old.*middle/s, 'files in descending order' );
+
+can_test_forbidden && 
+    $t2->content_unlike( qr/forbidden/, 'forbidden files hidden' );
 # !: forbidden tests fail when you test as root because no files are forbidden
+# !: forbidden tests fail on Windows, too
 
 $t2->get_ok('/?C=M', 'request for list from oldest to newest')
     ->status_is(200, 'request ok')
@@ -154,21 +161,24 @@ $t4->get_ok('/dir1')->status_is(200)
     ->content_like( qr/thead.*Name.*Modified.*Size.*thead/s,
 		    'output has column headings' )
     ->content_unlike( qr/Type.*thead/s , 'Type column suppressed' )
-    ->content_unlike( qr/forbidden/, 'forbidden files suppressed' )
     ->content_like( qr/directory-listing-time/,
 		    'listings include last modtime' )
     ->content_unlike( qr/directory-listing-type/ ,
 		      'listings do not include file type')
     ->content_like( qr/old.*young.*middle/s , 'ordered by size' );
+can_test_forbidden && 
+    $t4->content_unlike( qr/forbidden/, 'forbidden files suppressed' );
+
 $t4->get_ok('/dir2')->status_is(200)
     ->content_like( qr/thead.*Name.*Modified.*Type.*thead/s,
 		    'output has column headings' )
     ->content_unlike( qr/thead.*Size.*thead/s, 'show-file-size => 0' )
-    ->content_like( qr/forbidden/, 'show-forbidden support' )
     ->content_like( qr/directory-listing-type/,
 		    'listings include file type' )
     ->content_unlike( qr/directory-listing-size/, 'size column suppressed' )
     ->content_like( qr/young.*old.*middle/s, 'order by type descending' );
+can_test_forbidden &&
+    $t4->content_like( qr/forbidden/, 'show-forbidden support' );
 $t4->get_ok('/dir2/dir3')->status_is(200)
     ->content_like( qr/thead.*Name.*thead/s,
 		    'column headings include Name' )
