@@ -6,3 +6,13 @@ Revision history for MojoX-DirectoryListing
 0.02	2013-09-09
 	Fix _mk_fileserver function to respond with correct content-type.
 	Skip forbidden tests on MSWin32
+
+0.03	2013-09-11
+	Support user specified style/stylesheets for output
+
+0.04	2013-09-12
+	Support for user specified header and footer.
+	Include icons to the left of directory listing indicating file type
+	when the  show-icon => 1  option is provided.
+
+

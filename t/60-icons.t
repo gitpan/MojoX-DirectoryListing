@@ -1,8 +1,19 @@
 use Test::More;
 use Test::Mojo;
 use MojoX::DirectoryListing;
+use MojoX::DirectoryListing::Icons;
 use strict;
 use warnings;
+
+my $icon = choose_icon( { name => "foo.gif", type => "gif" } );
+ok($icon eq 'image', 'image type identified' );
+
+$icon = choose_icon( { name => "README", type => "README" } );
+ok($icon =~ /hand.right/, 'README type identified');
+
+my $data = get_icon($icon);
+ok( $data =~ /^GIF/ && $data =~ /[\200-\377]/,
+    'icon contains binary data');
 
 diag 'building test filesystem';
 mkdir "t/app1/private";
@@ -53,17 +64,21 @@ my $t6 = Test::Mojo->new( 't::app1::Server6' );
 $t6->get_ok('/test')->content_is('Server6', 'Server6 active');
 $t6->get_ok('/hidden')->status_is(200)
     ->content_like( qr/directory listing by MojoX::DirectoryListing/ );
-$t6->get_ok('/hidden/img.html')->status_is(200)
-    ->content_like( qr/head.*body/is )
-    ->content_type_like( qr'text/html' );
-$t6->get_ok('/hidden/img.txt')->status_is(200)
-    ->content_like( qr/This is t.app1.private.img.txt/ )
-    ->content_type_is( 'text/plain' );
-$t6->get_ok('/hidden/img.abc')->status_is(200)
-    ->content_type_like( qr/text/, 'text type detected from content' );
-$t6->get_ok('/hidden/img.xyz')->status_is(200)
-    ->content_type_like( qr#text/html#, 'default type is text/html' );
-$t6->get_ok('/hidden/somefile')->status_is(200)
-    ->content_type_like( qr#text/html#, 'default type is text/html' );
+
+$t6->get_ok("/directory-listing-icons/text")->status_is(200)
+    ->content_type_is("image/gif");
+$t6->get_ok("/directory-listing-icons/unknown")->status_is(200)
+    ->content_type_is("image/gif");
+my $uk_data = $t6->tx->res->{content}{asset}{content};
+$t6->get_ok("/directory-listing-icons/bogus.arc")->status_is(200);
+my $bg_data = $t6->tx->res->{content}{asset}{content};
+ok( $uk_data eq $bg_data , '/directory-listing-icons/XXX.YYY always returns' );
+$t6->get_ok("/directory-listing-icons/bogus/arc")
+    ->status_isnt(200, '/directory-listing-icons/XXX/YYY not ok' );
+
+$t6->get_ok('/')->status_is(200)
+    ->content_like( qr{/directory-listing-icons/back} );
+$t6->get_ok('/hidden')->status_is(200)
+    ->content_unlike( qr{/directory-listing-icons} );
 
 done_testing();

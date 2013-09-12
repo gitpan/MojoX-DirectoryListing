@@ -1,13 +1,16 @@
 package MojoX::DirectoryListing;
 
 use 5.010;
+use MojoX::DirectoryListing::Icons;
 use strict;
 use warnings FATAL => 'all';
 use base 'Exporter';
 
 our @EXPORT = ('serve_directory_listing');
-our $VERSION = '0.02';
+our $VERSION = '0.04';
+
 our $public_dir = "public";
+our %icon_server_set = ();
 
 sub set_public_app_dir {
     $public_dir = shift;
@@ -15,7 +18,6 @@ sub set_public_app_dir {
 }
 
 sub serve_directory_listing {
-    $DB::single = 1;
     my $route = shift;
     my $local;
     if (@_ % 2 == 1) {
@@ -24,9 +26,19 @@ sub serve_directory_listing {
     my %options = @_;
     my $caller = $options{caller} // caller;
 
+    if ($route !~ m{^/}) {
+	$caller->app->log->error(
+	    "MojoX::DirectoryListing: route in serve_directory_listing() "
+	    . "must have a leading / !" );
+	return;
+    }
+
     my $listing_sub = _mk_dir_listing($route,$local,%options);
 
     $caller->app->routes->get( $route, $listing_sub );
+    $icon_server_set{$caller}++ or
+	$caller->app->routes->get( "/directory-listing-icons/#icon",
+				   \&_serve_icon );
 
     if ($options{recursive}) {
 	my $dh;
@@ -121,20 +133,20 @@ sub _render_directory {
     my $show_file_size = $self->stash("show-file-size") // 1;
     my $show_file_type = $self->stash("show-file-type") // 1;
     my $show_forbidden = $self->stash("show-forbidden") // 0;
-
-    # XXX - what else is configurable ?
-    #     <head></head> section
-    #     page header
-    #     page footer
-    #     css
-    my $header = $self->stash("header") // "-";
-    my $page_header = $self->stash("page-header") // "-";
+    my $show_icon = $self->stash("show-icon") // 0;    # TODO
+    my $stylesheet = $self->stash("stylesheet");
 
     $virtual_dir =~ s{/$}{} unless $virtual_dir eq '/';
     my $dh;
     if (!opendir $dh, $actual_dir) {
-	print STDERR "opendir failed on $actual_dir ???\n";
-	die;
+	$self->app->log->error(
+	    "MojoX::DirectoryListing: opendir failed on $actual_dir" );
+	if (-d $actual_dir) {
+	    $self->status(403);
+	} else {
+	    $self->status(404);
+	}
+	return;
     }
     my @items = map {
 	my @stat = stat("$actual_dir/$_");
@@ -171,45 +183,28 @@ sub _render_directory {
     }
 
     $output = "<!DOCTYPE html><html><head>";
+    $output .= _add_style($self, $stylesheet);
+    $output .= qq[
+</head>
+<body class="directory-listing">
+<base href="/" />
+<!-- directory listing by MojoX::DirectoryListing -->
+];
 
-    if ($header ne '-' && open my $fh, '<', $header) {
-	$output .= join '', <$fh>;
-	close $fh;
-    } else {
-    $output .= <<'__END_DEFAULT_HEAD__';
-<style>
+    my $header = $self->stash("header") //
+	qq[<h1 class="directory-listing">Index of __DIR__</h1>];
+    $header =~ s/__DIR__/$virtual_dir/g;
+    $output .= $header . "\n";
 
-body     { font-family: "Lucida Grande", tahoma, sans-serif;
-           font-size: 100%; margin: 0; width: 100%; }
-h1 {
-	background: #999;
-	background: -webkit-gradient(linear, left top, left bottom, from(#A2C6E
-5), to(#2B6699));
-	background: -moz-linear-gradient(top,  #A2C6E5,  #2B6699);
-	filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#A2C6
-E5', endColorstr='#2B6699');
-	padding: 10px 0 10px 10px; margin: 0; color: white;
-}
-li.dir a { font-weight: bold; font-size: 1.1em;	color: #346D9E; }
-a        { color: #5C8DB8; }
-hr       { border: solid silver 1px; width: 95%; }
-.directory-listing-row, .directory-listing-header { font-family: Courier }
+    $output .= "<hr class=\"directory-listing\"/>\n";
 
-</style>
-__END_DEFAULT_HEAD__
-    }
+    $output .= qq[
+<table border=0>
+<thead class="directory-listing-header">
+];
 
-    $output .= qq[</head><body><base href="/" />\n];
-    $output .= qq{<!-- directory listing by MojoX::DirectoryListing -->\n};
-
-    # default page header
-    $output .= "<h1>$virtual_dir</h1>\n";
-    $output .= "<hr />\n";
-
-
-    $output .= "<table border=0>\n";
-    $output .= qq!<thead class="directory-listing-header">\n!;
-    for ( [1,'Name','N'], [$show_file_time,'Last Modified','M'], 
+    for ( [$show_icon, "Icon", ""],
+	  [1,'Name','N'], [$show_file_time,'Last Modified','M'], 
 	  [$show_file_size,'Size','S'], [$show_file_type,'Type','T'] ) {
 	my ($show, $text, $col_code) = @$_;
 	next if !$show;
@@ -223,47 +218,118 @@ __END_DEFAULT_HEAD__
 		$order_code = 'D';
 	    }
 	}
+	if ($text eq 'Icon') {
+	    $output .= qq[  <th>&nbsp;</th>\n];
+	} else {
 
-	$output .= qq{<th><a href="$virtual_dir?C=$col_code;O=$order_code">};
-	$output .= qq{$text</a> $sortind</th>\n};
+	    $output .= qq[  <th>
+      <a class="directory-listing-link" href="?C=$col_code;O=$order_code">$text</a> $sortind
+  </th>
+];
+	}
     }
-    $output .= "</thead>\n";
-    $output .= "<tbody>\n";
+
+    $output .= "</thead>\n<tbody>\n";
+
+    my $table_element_template = qq[    <td class="directory-listing-%s">&nbsp;%s&nbsp;</td>\n];
 
     foreach my $item (@items) {
         next if $item->{name} eq '.';
         next if $item->{forbidden} && !$show_forbidden;
-        $output .= "<tr class=\"directory-listing-row\">\n";
-	if ($item->{forbidden}) {
-	    $output .= "  <td class=\"directory-listing-forbidden-name\">$item->{name}</td>\n";
-	} else {
-	    $output .= "  <td class=\"directory-listing-name\">";
-	    $output .= "<a href=\"$virtual_dir/$item->{name}\">";
-	    $output .= "<strong>" . $item->{name} . "</strong></a></td>\n";
+        $output .= "  <tr class=\"directory-listing-row\">\n";
+
+	if ($show_icon) {
+	    my $icon = choose_icon($item);
+	    $output .= sprintf $table_element_template,
+	        "icon", "<img src=\"/directory-listing-icons/$icon\">";
 	}
+
+	if ($item->{forbidden}) {
+	    $output .= sprintf $table_element_template,
+		"forbidden-name", $item->{name};
+	} else {
+	    my $name = $item->{name};
+	    $name = 'Parent Directory' if $name eq '..';
+	    $output .= sprintf $table_element_template,
+		"name",
+		qq[<a class="directory-listing-link" href="$virtual_dir/$item->{name}">$name</a>];
+	}
+
+
 	if ($show_file_time) {
-	    $output .= "  <td class=\"directory-listing-time\">";
-	    $output .= "&nbsp;" . _render_modtime($item->{modtime});
-	    $output .= "&nbsp;</td>\n";
+	    $output .= sprintf $table_element_template,
+		"time", _render_modtime($item->{modtime});
 	}
 	if ($show_file_size) {
-	    $output .= "  <td class=\"directory-listing-size\">";
-	    $output .= "&nbsp;" . _render_size($item);
-	    $output .= "&nbsp;</td>\n";
+	    $output .= sprintf $table_element_template,
+		"size", _render_size($item);
 	}
 	if ($show_file_type) {
-	    $output .= "  <td class=\"directory-listing-type\">";
-	    $output .= "&nbsp;" . $item->{type};
-	    $output .= "&nbsp;</td>\n";
+	    $output .= sprintf $table_element_template,
+		"type", $item->{type};
 	}
-	$output .= "</tr>\n";
+	$output .= "  </tr>\n";
     }
-    $output .= "</tbody></table>\n";
+    $output .= "</tbody>\n</table>\n";
 
-    # XXX - footer
+    if ($self->stash("footer")) {
+	$output .= "<hr class=\"directory-listing\">\n";
+	my $footer = $self->stash("footer");
+	$footer =~ s/__DIR__/$virtual_dir/g;
+	$output .= $footer . "\n";
+    }
 
-    $output .= "</body></html>\n";
+    $output .= "</body>\n</html>\n";
     $self->render( text => $output );
+}
+
+sub _add_style {
+    # output either a  <style>...</style>  tag or a
+    # <link rel="stylesheet" href="..." /> tag
+
+    my ($self, $stylesheet) = @_;
+    if (defined($stylesheet) && !ref($stylesheet)) {
+	return qq[<link rel="stylesheet" href="$stylesheet">\n];
+    }
+
+    my $style = "";
+    if (!defined $stylesheet) {
+	$style = _default_style();
+    } elsif (ref $stylesheet eq 'ARRAY') {
+	$style = join "\n", @$stylesheet;
+    } elsif (ref $stylesheet eq 'HASH') {
+	while (my ($selector,$attrib) = each %$stylesheet) {
+	    $style .= "$selector $attrib\n";
+	}
+    } elsif (ref $stylesheet eq 'SCALAR') {
+	$style = $$stylesheet;
+    } else {
+	$self->app->log->warn( "MojoX::DirectoryListing: Invalid ref type "
+			       . (ref $stylesheet) . " for stylesheet" );
+	$style = _default_style();
+    }
+    return "<style>\n$style\n</style>\n";
+}
+
+sub _default_style {
+    # inspired by/borrowed from  app-dirserve
+    return qq~<style>
+body.directory-listing {
+  font-family: "Lucida Grande", tahoma, sans-serif;
+  font-size: 100%; margin: 0; width: 100%;
+}
+h1.directory-listing {
+  background: #999;
+  background: -webkit-gradient(linear, left top, left bottom, from(#A2C6E5), to(#2B6699));
+  background: -moz-linear-gradient(top,  #A2C6E5,  #2B6699);
+  filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#A2C6E5', endColorstr='#2B6699');
+  padding: 10px 0 10px 10px; margin: 0; color: white;
+}
+a.directory-listing-link   { color: #5C8DB8; }
+hr.directory-listing       { border: solid silver 1px; width: 95%; }
+.directory-listing-row, .directory-listing-header { font-family: Courier }
+.directory-listing-name    { font-weight: bold; color: #346D9E; }
+</style>~;
 }
 
 sub _render_size {
@@ -304,15 +370,25 @@ sub _filetype {
     return "Unknown";
 }
 
+sub _serve_icon {
+    my $self = shift;
+    my $icon = $self->param('icon');
+    my $bytes = MojoX::DirectoryListing::Icons::get_icon( $icon );
+    $self->render( format => 'gif',
+		   data => $bytes );	
+}
+
 1;
-  
+
+__END__
+
 =head1 NAME
 
 MojoX::DirectoryListing - show Apache-style directory listings in your Mojolicious app
 
 =head1 VERSION
 
-0.02
+0.04
 
 =head1 SYNOPSIS
 
@@ -392,8 +468,9 @@ The default is to order listings by name.
 If a request includes the parameter C<C>, it will override
 this setting for that request. This makes the behavior of
 this feature similar to the feature in Apache (see
-L<http://www2.census.gov/geo/tiger/GENZ2010/?C=M;O=A>,
-for example.
+L<http://cpansearch.perl.org/src/MOB/MojoX-DirectoryListing-0.04/>
+for example [actually, this is an emulation of Apache-style
+directory listing in L<Plack>)).
 
 =item C<display-order> => C< A | D>
 
@@ -427,11 +504,104 @@ readable by the user running the web server. When such a
 file is listed, it will not include a link to the file.
 The default is false.
 
+=item C<show-icon> => boolean
+
+If true, an icon appears to the left of every directory
+listing indicating the type of file.
+The default is false.
+
 =item C<recursive> => boolean
 
 If true, invoke C<serve_directory_listing> on all
 I<subdirectories> of the directory being served.
 The default is false.
+
+=item C<stylesheet> => url
+
+=item C<stylesheet> => \$style-spec
+
+A URL to specify a cascading stylesheet to be applied to the
+directory listing page, or reference to a scalar that holds
+style information (suitable for inserting into a pair of
+C<< <style></style> >> tags in the output of this subroutine. 
+
+If you do wish to override the styles for the directory listing
+output, the selectors you want to define are:
+
+=over 4
+
+=item C<.directory-listing>
+
+A class that is applied to C<< <body> >>, C<< <h1> >>, and C<< <hr> >>
+elements on the directory listing output.
+
+=item C<.directory-listing-link>
+
+A class that is applied to the C<< <a> >> tag associated with each
+filename in the directory listing.
+
+=item C<.directory-listing-header>
+
+A class that applies to the column headings (Name, Last Modified,
+Size, and Type columns) in the directory listing.
+
+=item C<.directory-listing-row>
+
+A class that applies to a row in the directory listing. which may
+include a file name, the file's modification time, the file's
+size, and the file's type.
+
+=item C<.directory-listing-name>
+
+A class that applies to a filename in the directory listing, but
+not "forbidden" files -- see C<.directory-listing-forbidden-name>.
+
+=item C<.directory-listing-forbidden-name>
+
+A class that applies to the filename for a "forbidden" file; that is,
+a file listing that the user is allowed to see for a file that
+he/she is not allowed to see. See L<"show-forbidden">.
+
+=item C<.directory-listing-time>
+
+A class that applies to the display of a file's last modification time
+in the directory listing.
+
+=item C<.directory-listing-size>
+
+A class that applies to the display of a file's size in the
+directory listing.
+
+=item C<.directory-listing-type>
+
+A class that applies to the display of a file's file type
+in the directory listing.
+
+=back
+
+If not specified, the default style is the one used by the
+L<app-dirserve|https::/github.com/tempire/app-dirserve>
+application (see L<"ACKNOWLEDGEMENTS">).
+
+=item C<header> => string
+
+Specify HTML code to be included at the top of the
+directory listing page. If the string contains the token
+C<__DIR__>, it will be replaced with the path of the
+directory being requested.
+
+If a header is not specified, the default header is
+
+    <h1 class="directory-listing">Index of __DIR__</h1>
+
+=item C<footer> => string
+
+Specify HTML code to be included at the bottom of the
+directory listing page. If the string contains the token
+C<__DIR__>, it will b e replaced with the path of the
+directory being requested.
+
+The default footer is the empty string.
 
 =back
 
@@ -513,6 +683,10 @@ microapplication to serve a directory over a webservice.
 I have borrowed a lot of his ideas and a little of 
 his code in this module.
 
+=head1 SEE ALSO
+
+L<Plack::App::Directory>
+
 =head1 LICENSE AND COPYRIGHT
 
 Copyright 2013 Marty O'Brien.
@@ -553,7 +727,4 @@ CONTRIBUTOR WILL BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, OR
 CONSEQUENTIAL DAMAGES ARISING IN ANY WAY OUT OF THE USE OF THE PACKAGE,
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
 =cut
-
-1; # End of MojoX::DirectoryListing

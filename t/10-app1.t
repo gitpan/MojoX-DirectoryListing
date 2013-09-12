@@ -15,7 +15,8 @@ sub can_test_forbidden {
     sub mk_file {
 	my $fname = shift;
 	open my $fh, '>', $fname;
-	print $fh "This is file $fname";
+	print $fh "This is file $fname"
+		or warn "Gah! Could not print to $fh/$fname";
 	close $fh;
 	push @madefiles, $fname;
     }
@@ -27,7 +28,7 @@ sub can_test_forbidden {
     }
 
     sub build_app1_filesystem {
-	diag "building app1 filesystem for testing";
+	diag "building test filesystem";
 	mk_dir "t/app1/$_" for qw(
 		public private public/dir1 public/dir2
 		public/dir2/dir3 private/dir4);
@@ -42,7 +43,7 @@ sub can_test_forbidden {
     }
 
     END {
-	diag "destroying app1 test filesystem";
+	diag "tearing down test filesystem";
 	chmod 0666, "$_/forbidden.gif" for @madedirs;
 	unlink $_ for @madefiles;
 	rmdir $_ for @madedirs;
