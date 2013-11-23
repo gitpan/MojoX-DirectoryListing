@@ -58,7 +58,7 @@ $t6->get_ok('/hidden/img.html')->status_is(200)
     ->content_type_like( qr'text/html' );
 $t6->get_ok('/hidden/img.txt')->status_is(200)
     ->content_like( qr/This is t.app1.private.img.txt/ )
-    ->content_type_is( 'text/plain' );
+    ->content_type_like( qr'text/plain' );
 $t6->get_ok('/hidden/img.abc')->status_is(200)
     ->content_type_like( qr/text/, 'text type detected from content' );
 $t6->get_ok('/hidden/img.xyz')->status_is(200)

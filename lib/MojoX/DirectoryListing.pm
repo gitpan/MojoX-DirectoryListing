@@ -7,8 +7,9 @@ use warnings FATAL => 'all';
 use base 'Exporter';
 
 our @EXPORT = ('serve_directory_listing');
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
+# FIXME: see  @{app->static->paths} for list of public directories
 our $public_dir = "public";
 our %icon_server_set = ();
 
@@ -388,7 +389,7 @@ MojoX::DirectoryListing - show Apache-style directory listings in your Mojolicio
 
 =head1 VERSION
 
-0.04
+0.05
 
 =head1 SYNOPSIS
 
@@ -468,7 +469,7 @@ The default is to order listings by name.
 If a request includes the parameter C<C>, it will override
 this setting for that request. This makes the behavior of
 this feature similar to the feature in Apache (see
-L<http://cpansearch.perl.org/src/MOB/MojoX-DirectoryListing-0.04/>
+L<http://cpansearch.perl.org/src/MOB/MojoX-DirectoryListing-0.05/>
 for example [actually, this is an emulation of Apache-style
 directory listing in L<Plack>)).
 
@@ -515,6 +516,11 @@ The default is false.
 If true, invoke C<serve_directory_listing> on all
 I<subdirectories> of the directory being served.
 The default is false.
+
+For example, to serve all directories as well as all files
+under your app's C<public/> folder, it is sufficient to run
+
+    serve_directory_listing( '/',  recursive => 1 );
 
 =item C<stylesheet> => url
 

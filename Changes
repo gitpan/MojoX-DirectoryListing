@@ -15,4 +15,5 @@ Revision history for MojoX-DirectoryListing
 	Include icons to the left of directory listing indicating file type
 	when the  show-icon => 1  option is provided.
 
-
+0.05	2013-11-23
+	test fix, pod updates
